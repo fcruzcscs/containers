@@ -18,7 +18,7 @@ case "$(dpkg --print-architecture)" in
         ;;
 esac
 
-download_url="https://code.visualstudio.com/sha/download?build=stable&os=${vscode_cli_os}"
+download_url="https://update.code.visualstudio.com/latest/${vscode_cli_os}/stable"
 temporary_directory="$(mktemp -d)"
 trap 'rm -rf "$temporary_directory"' EXIT
 
