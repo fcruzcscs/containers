@@ -26,7 +26,7 @@ jobs:
       platforms: linux/amd64,linux/arm64
 
       context: ./mpi-demo
-      file: ./mpi-demo/Containerfile
+      file: ./Containerfile
 
       cache: true
       cache-scope: mpi-demo
@@ -41,4 +41,3 @@ jobs:
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
