@@ -31,7 +31,7 @@ jobs:
       cache: true
       cache-scope: mpi-demo
 
-      meta-images: ghcr.io/felipecr/mpi-demo
+      meta-images: ghcr.io/${{ github.repository_owner }}/mpi-demo
       meta-tags: |
         type=raw,value=latest
         type=sha
@@ -41,3 +41,4 @@ jobs:
         - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
