@@ -1,0 +1,138 @@
+FROM docker.io/ubuntu:24.04
+
+ARG LIBFABRIC_VERSION=1.22.0
+ARG MPICH_VERSION=4.3.1
+
+# ---------------------------------------------------------------------------
+# Build tools + Python
+# ---------------------------------------------------------------------------
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        automake \
+        autoconf \
+        libtool \
+        make \
+        wget \
+        git \
+        gfortran \
+        python3 \
+        python3-dev \
+        python3-venv \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# ---------------------------------------------------------------------------
+# XPMEM
+#
+# Used by MPICH for efficient intra-node communication.
+# At runtime, the CSCS container integration can provide the host-side
+# implementation.
+# ---------------------------------------------------------------------------
+
+RUN git clone --depth 1 https://github.com/hpc/xpmem.git && \
+    cd xpmem/lib && \
+    mkdir -p /usr/lib64 && \
+    gcc -I../include -shared -o libxpmem.so.1 libxpmem.c && \
+    ln -s libxpmem.so.1 libxpmem.so && \
+    mv libxpmem.so* /usr/lib64/ && \
+    cp ../include/xpmem.h /usr/include/ && \
+    echo "/usr/lib64" > /etc/ld.so.conf.d/xpmem.conf && \
+    ldconfig && \
+    cd / && \
+    rm -rf /xpmem
+
+
+# ---------------------------------------------------------------------------
+# libfabric / OFI
+#
+# MPICH will be linked against this copy.
+# On Alps, the CXI container hook can replace it with the host-side
+# Slingshot-enabled libfabric implementation.
+# ---------------------------------------------------------------------------
+
+RUN wget -q \
+      https://github.com/ofiwg/libfabric/archive/v${LIBFABRIC_VERSION}.tar.gz && \
+    tar xf v${LIBFABRIC_VERSION}.tar.gz && \
+    cd libfabric-${LIBFABRIC_VERSION} && \
+    ./autogen.sh && \
+    ./configure --prefix=/usr && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf \
+      /v${LIBFABRIC_VERSION}.tar.gz \
+      /libfabric-${LIBFABRIC_VERSION}
+
+
+# ---------------------------------------------------------------------------
+# MPICH
+#
+# CH4:OFI -> libfabric for inter-node communication
+# XPMEM   -> efficient shared-memory communication within a node
+# ---------------------------------------------------------------------------
+
+RUN wget -q \
+      https://www.mpich.org/static/downloads/${MPICH_VERSION}/mpich-${MPICH_VERSION}.tar.gz && \
+    tar xf mpich-${MPICH_VERSION}.tar.gz && \
+    cd mpich-${MPICH_VERSION} && \
+    ./autogen.sh && \
+    ./configure \
+        --prefix=/usr \
+        --enable-fast=O3,ndebug \
+        --enable-fortran \
+        --enable-cxx \
+        --with-device=ch4:ofi \
+        --with-libfabric=/usr \
+        --with-xpmem=/usr && \
+    make -j"$(nproc)" && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf \
+      /mpich-${MPICH_VERSION}.tar.gz \
+      /mpich-${MPICH_VERSION}
+
+
+# ---------------------------------------------------------------------------
+# Python environment
+#
+# Build mpi4py FROM SOURCE so that it is compiled against the MPICH
+# installation above rather than picking up an unrelated MPI wheel.
+# mpi4py explicitly recommends source builds for this kind of setup.
+# ---------------------------------------------------------------------------
+
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/python -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    MPICC=/usr/bin/mpicc \
+      /opt/venv/bin/python -m pip install \
+        --no-cache-dir \
+        --no-binary=mpi4py \
+        numpy \
+        mpi4py
+
+ENV PATH="/opt/venv/bin:${PATH}"
+
+
+# ---------------------------------------------------------------------------
+# Tiny demo application
+# ---------------------------------------------------------------------------
+
+WORKDIR /app
+
+COPY demo.py /app/demo.py
+
+
+# ---------------------------------------------------------------------------
+# Quick build-time sanity checks
+# ---------------------------------------------------------------------------
+
+RUN mpicc --version && \
+    python -c "from mpi4py import MPI; print(MPI.Get_library_version())"
+
+
+CMD ["python", "/app/demo.py"]
