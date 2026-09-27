@@ -8,43 +8,37 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
-  container:
-    runs-on: ubuntu-latest
+  build:
+    uses: docker/github-builder/.github/workflows/build.yml@v1
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
 
-      # GHCR image names must be lowercase.
-      - name: Set image name
-        id: image
-        shell: bash
-        run: |
-          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+    with:
+      output: image
+      push: true
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
+      platforms: linux/amd64,linux/arm64
+
+      context: ./mpi-demo
+      file: ./mpi-demo/Containerfile
+
+      cache: true
+      cache-scope: mpi-demo
+
+      meta-images: ghcr.io/felipecr/mpi-demo
+      meta-tags: |
+        type=raw,value=latest
+        type=sha
+
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: ./mpi-demo
-          file: ./mpi-demo/Containerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ${{ steps.image.outputs.name }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
